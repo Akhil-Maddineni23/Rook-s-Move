@@ -6,7 +6,7 @@
 * Set-up Node js environment
 * Then run the command - npm install phaser socket.io
 * Open the following link in the browser - http://127.0.0.1:5500/client/index.html
-  Opening the link in localhost port No : 5500
+* Opening the link in localhost port No : 5500
 * Open the same link in same other browser or incognito window.
 * Start playing the game.
 
