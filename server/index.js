@@ -17,7 +17,7 @@ const corsOptions = {
   },
 };
 
-//Middlewares
+// Middlewares
 app.use(express.json());
 app.use(cors(corsOptions));
 
@@ -32,62 +32,141 @@ io.on('connection', (socket) => {
     console.log('A Player connected');
 
     // Listen for 'joinRoom' event 
+    // Get roomNo for joining into a specific room
     socket.on('joinRoom', (data) => {
-        const { roomID } = data;
+        const { roomID, playerName } = data;
 
         // Check if the room is full (2 players)
         if (rooms[roomID] && rooms[roomID].length >= 2) {
             console.log(`Room ${roomID} is full. Cannot join.`); 
-        }else{
-          console.log('Room is full');
-        }
+        } else {
+            socket.join(roomID);
 
-        socket.join(roomID);
+            // Initialize the room if it doesn't exist
+            if (!rooms[roomID]) {
+                rooms[roomID] = {
+                    players: [],
+                    currentPlayerIndex: 0, // Index of the current player in the players array
+                };
+            }
 
-        // Initialize the room if it doesn't exist
-        if (!rooms[roomID]) {
-            rooms[roomID] = [];
-        }
+            // Add the player to the room
+            rooms[roomID].players.push({
+                socketId: socket.id,
+                playerName : playerName,
+                active : true,
+                turn: rooms[roomID].players.length === 0, // First player gets the first turn
+            });
 
-        // Add the player to the room
-        rooms[roomID].push(socket.id);
-        console.log(`Player ${socket.id} joined room ${roomID}`);
+            console.log(`Player with socket Id = ${socket.id} joined room no = ${roomID}`);
+            //io.to(roomID).emit('roomJoined', { players: rooms[roomID].players });
 
-        if(rooms[roomID].length == 2){
-            // Emit 'opponentStatus' to all clients in the room
-            io.to(roomID).emit('opponentStatus', { status: 'online' });
+            let count = 0;
+            rooms[roomID].players.forEach(player => {
+              if(player.active){
+                count+=1;
+              }
+            })
+
+            if (count === 2) {
+                // Iterate through each player in the room
+                rooms[roomID].players.forEach(player => {
+                  // Determine whether it's the current player's turn
+                  //const isCurrentPlayer = player.socketId === socket.id;
+
+                  // Emit 'opponentStatus' to the individual client with their own status and turn value
+                  io.to(player.socketId).emit('opponentStatus', { status: 'online', isTurn: player.turn });
+                  console.log(player);
+              });
+            }
+           
         }
     });
 
-    socket.on('playerMove', (data) => {
+    socket.on('playerMove', (data, callback) => {
+      const { roomID } = data;
+      const room = rooms[roomID];
+  
+      // Check if it's the player's turn
+      const currentPlayer = room.players[room.currentPlayerIndex];
+  
+      if (socket.id !== currentPlayer.socketId) {
+          // It's not the player's turn
+          socket.emit('notYourTurn');
+          
+          // Notify the caller that it's not the player's turn
+          if (callback) {
+              callback('Not your turn');
+          }
+  
+          return;
+      }
+  
       // Broadcast the move to all players in the room except the sender
-      socket.to(data.roomID).emit('playerMove', data);
-    });
-    
+      socket.to(roomID).emit('playerMove', data);
+  
+      // Switch turn to the other player
+      room.currentPlayerIndex = (room.currentPlayerIndex + 1) % room.players.length;
 
-    socket.on('gameOver', (data) => {
-      const { roomID , targetReached} = data;
-      // Emit game result to all members in the room
-      io.to(roomID).emit('gameResult', {
-        senderSocketID: socket.id, 
-        targetReached
+      // Update the turn status directly using the currentPlayerIndex
+      room.players.forEach((player, index) => {
+        player.turn = index === room.currentPlayerIndex;
+
+        // Emit 'turnChange' event individually for each socket with their turn value
+        io.to(player.socketId).emit('turnChange', { isTurn: player.turn });
       });
+
+      // Notify the caller that the move was successful
+      if (callback) {
+          callback(null);
+      }
     });
-    
-    socket.on('disconnect', () => {
+  
+    socket.on('gameOver', (data) => {
+        const { roomID, targetReached } = data;
+        // Emit game result to all members in the room
+        // this targetReached decides who is the winner - because the game can be over in different instances - time runout, reached target
+        io.to(roomID).emit('gameResult', {
+            senderSocketID: socket.id,
+            targetReached,
+        });
+
+        delete rooms[roomID];
+    });
+
+    socket.on('exitGame', (data) => {
         console.log('Player disconnected');
         // Remove the user from the room when they disconnect
         Object.keys(rooms).forEach((roomID) => {
-            rooms[roomID] = rooms[roomID].filter((id) => id !== socket.id);
-            if (rooms[roomID].length === 0) {
+            const room = rooms[roomID];
+
+            // Removing that players from the players list - based on his socketID
+            room.players = room.players.filter((player) => player.socketId !== socket.id);
+
+            if (room.players.length === 0) {
                 // Delete the room if it becomes empty
                 delete rooms[roomID];
             }
         });
+    })
+
+    socket.on('disconnect', () => {
+      console.log('Player disconnected');
+      // Remove the user from the room when they disconnect
+      Object.keys(rooms).forEach((roomID) => {
+          const room = rooms[roomID];
+
+          // Removing that players from the players list - based on his socketID
+          room.players = room.players.filter((player) => player.socketId !== socket.id);
+
+          if (room.players.length === 0) {
+              // Delete the room if it becomes empty
+              delete rooms[roomID];
+          }
+      });
     });
 });
 
-
 server.listen(3000, () => {
-  console.log("Server is running on Port = 3000");
+    console.log("Server is running on Port = 3000");
 });
