@@ -4,7 +4,7 @@
 
 ## 1.) Client:
 * Set-up Node js environment
-* Then run the command - npm install phaser socket.io
+* Install the dependencies using the command - npm install phaser socket.io
 * Run the client in the localhost port no : 5500 (http://127.0.0.1:5500/client/index.html)
 * It is a multiplayer game (only 2 players were allowed to play the game).
 * Run the client in some other browser or incognito window.
